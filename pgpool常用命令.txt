@@ -1,0 +1,160 @@
+psql -h vip -p 9999 -U postgres -d postgres
+
+#pgpool启动
+pgpool -n -D > /var/log/pgpool/pgpool.log 2>&1 &
+pgpool -m fast stop
+
+
+pcp_watchdog_info -h vip -p 9898 -U postgres -v
+
+pcp_recovery_node -h vip -p 9898 -U postgres -n 1
+
+#pgpool节点故障转移
+# - Watchdog consensus settings for failover -
+failover_when_quorum_exists = on
+failover_require_consensus = on
+allow_multiple_failover_requests_from_node = on
+enable_consensus_with_half_votes = on
+
+
+
+systemctl stop postgresql-12
+cd /var/lib/pgsql/12/data
+
+pg_basebackup -h 10.242.111.204 -p 5432 -U repuser -Fp -Xs -Pv -R -D /var/lib/pgsql/12/data
+
+systemctl restart postgresql-12
+
+
+#将备库standby切换为primary主库
+/usr/bin/ssh -T slave /usr/pgsql-12/bin/pg_ctl promote -D /var/lib/pgsql/12/data
+
+#将修复的master节点加入集群
+pcp_attach_node -d -U postgres -h vip -p 9898 -n 0
+
+
+
+https://my.oschina.net/freegis/blog/1489998#h1_1
+https://www.jianshu.com/p/9e4065016b06
+https://www.jianshu.com/p/ef183d0a9213
+https://olei.me/829/
+https://blog.csdn.net/IToBeNo_1/article/details/79808817
+
+"markdown.styles": [
+  "file:///C:/coding/vscode/css/github-markdown-5.css"
+]
+
+/usr/bin/ssh -T slave /usr/pgsql-12/bin/pg_ctl promote -D /var/lib/pgsql/12/data/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#基础配置
+pid_file_name = '/var/run/pgpool/pgpool.pid'
+listen_addresses = '*'
+port = 9999
+pcp_listen_addresses = '*'
+pcp_port = 9898
+
+backend_hostname0 = 'master'
+backend_port0 = 5432
+backend_weight0 = 5
+backend_data_directory0 = '/var/lib/pgsql/12/data'
+backend_flag0 = 'ALLOW_TO_FAILOVER'
+
+backend_hostname1 = 'slave'
+backend_port1 = 5432
+backend_weight1 = 5
+backend_data_directory1 = '/var/lib/pgsql/12/data'
+backend_flag1 = 'ALLOW_TO_FAILOVER'
+
+enable_pool_hba = on
+pool_passwd = 'pool_passwd'
+
+
+
+replication_mode = off
+load_balance_mode = on
+master_slave_mode = on
+master_slave_sub_mode = 'stream'
+
+sr_check_period = 5
+sr_check_user = 'repuser'
+sr_check_password = 'repuser'
+sr_check_database = 'postgres'
+delay_threshold = 1024
+
+health_check_period = 10
+health_check_timeout = 20
+health_check_user = 'postgres'
+health_check_password = 'postgres'
+health_check_database = 'postgres'
+health_check_max_retries = 0
+health_check_retry_delay = 1
+#故障转移,follow_master_command多台需要配置
+failover_command = '/etc/pgpool-II/failover.sh %d %h %p %D %m %H %M %P %r %R %N %S'
+fail_over_on_backend_error = off
+
+use_watchdog = on
+trusted_servers = ''
+ping_path = '/bin'
+
+wd_hostname = 'master'
+wd_port = 9000
+wd_priority = 1
+wd_authkey = ''
+wd_ipc_socket_dir = '/var/run/postgresql'
+
+delegate_IP = 'vip'
+if_cmd_path = '/sbin'
+# 网卡名字需要正确配置
+if_up_cmd = '/usr/bin/sudo /sbin/ip addr add $_IP_$/24 dev ens160 label ens160:0'
+if_down_cmd = '/usr/bin/sudo /sbin/ip addr del $_IP_$/24 dev ens160'
+arping_cmd = '/usr/bin/sudo /usr/sbin/arping -U $_IP_$ -w 1 -I ens160'
+
+
+wd_lifecheck_method = 'heartbeat'         							# rtm  看门狗健康检测方法
+wd_heartbeat_port = 9694
+wd_heartbeat_keepalive = 2
+wd_heartbeat_deadtime = 30
+heartbeat_destination0 = 'slave'
+heartbeat_destination_port0 = 9694
+heartbeat_device0 = 'ens160'
+ 
+wd_life_point = 3               					# rtm   生命检测失败后重试次数
+wd_lifecheck_query = 'SELECT 1' 					# rtm  用于检查 pgpool-II 的查询语句。默认为“SELECT 1”。
+wd_lifecheck_dbname = 'postgres'       				# rtm 检查健康状态的数据库名称
+wd_lifecheck_user = 'postgres'           			# rtm 检查数据库的用户，该用户需要在Postgres数据库存在，且有查询权限
+wd_lifecheck_password = 'postgres'       			# rtm  看门狗健康检查用户密码
+
+other_pgpool_hostname0 = 'slave'
+other_pgpool_port0 = 9999
+other_wd_port0 = 9000
+
+#配置故障库恢复后变更为备库
+#多pgpool将不可用
+#recovery_user = 'postgres'    						# Online recovery user
+#recovery_password = 'postgres'    					# Online recovery password
+#recovery_1st_stage_command = 'recovery_1st_stage'
